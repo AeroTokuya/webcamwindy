@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Windy ライブカメラ一覧（全国）</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Helvetica Neue', Arial, sans-serif;
+      background: #f0f4f8;
+      color: #333;
+    }
+
+    header {
+      background: #2e7d32;
+      color: white;
+      padding: 20px 24px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    }
+
+    header h1 { font-size: 1.4rem; }
+    header p { font-size: 0.85rem; opacity: 0.85; margin-top: 4px; }
+
+    #stats {
+      text-align: center;
+      padding: 12px;
+      background: #e8f5e9;
+      font-size: 0.9rem;
+      color: #2e7d32;
+    }
+
+    #loading {
+      text-align: center;
+      padding: 60px;
+      font-size: 1.1rem;
+      color: #666;
+    }
+
+    .spinner {
+      width: 40px;
+      height: 40px;
+      border: 4px solid #ddd;
+      border-top-color: #2e7d32;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin: 0 auto 16px;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    #error {
+      display: none;
+      text-align: center;
+      padding: 40px;
+      color: #d32f2f;
+      background: #ffebee;
+      margin: 20px;
+      border-radius: 8px;
+    }
+
+    #content { padding: 20px 24px; max-width: 1400px; margin: 0 auto; }
+
+    .region-section { margin-bottom: 40px; }
+
+    .region-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 14px;
+      padding-bottom: 8px;
+      border-bottom: 3px solid #2e7d32;
+    }
+
+    .region-name { font-size: 1.3rem; font-weight: bold; color: #2e7d32; }
+    .region-count {
+      background: #2e7d32;
+      color: white;
+      border-radius: 12px;
+      padding: 2px 10px;
+      font-size: 0.8rem;
+    }
+
+    .camera-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 16px;
+    }
+
+    .camera-card {
+      background: white;
+      border-radius: 10px;
+      overflow: hidden;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+      transition: transform 0.2s, box-shadow 0.2s;
+      cursor: pointer;
+      text-decoration: none;
+      color: inherit;
+      display: block;
+    }
+
+    .camera-card:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 6px 16px rgba(0,0,0,0.15);
+    }
+
+    .camera-thumb {
+      width: 100%;
+      aspect-ratio: 16/9;
+      object-fit: cover;
+      background: #e0e0e0;
+    }
+
+    .camera-thumb-placeholder {
+      width: 100%;
+      aspect-ratio: 16/9;
+      background: linear-gradient(135deg, #e0e0e0, #bdbdbd);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 2rem;
+    }
+
+    .camera-info { padding: 10px 12px 12px; }
+    .camera-title { font-size: 0.9rem; font-weight: 600; line-height: 1.3; }
+    .camera-city { font-size: 0.78rem; color: #888; margin-top: 4px; }
+
+    .camera-status {
+      display: inline-block;
+      font-size: 0.7rem;
+      padding: 2px 6px;
+      border-radius: 4px;
+      margin-top: 6px;
+    }
+
+    .status-active { background: #e8f5e9; color: #2e7d32; }
+    .status-inactive { background: #fafafa; color: #999; }
+
+    .nav-btn {
+      background: rgba(255,255,255,0.2);
+      color: white;
+      border: 1px solid rgba(255,255,255,0.5);
+      border-radius: 20px;
+      padding: 4px 14px;
+      font-size: 0.85rem;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .nav-btn:hover { background: rgba(255,255,255,0.35); }
+    .nav-btn.active { background: white; color: #2e7d32; font-weight: bold; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+    <div>
+      <h1>📷 Windy ライブカメラ一覧</h1>
+      <p>全国のライブカメラを地方ごとに表示</p>
+    </div>
+    <a href="index.html" style="background:rgba(255,255,255,0.2); color:white; border:1px solid rgba(255,255,255,0.5); border-radius:20px; padding:6px 16px; text-decoration:none; font-size:0.9rem;">🗼 関東版へ</a>
+  </div>
+  <div id="nav" style="margin-top:12px; display:flex; flex-wrap:wrap; gap:8px;">
+    <button class="nav-btn active" data-region="all" onclick="filterRegion(this)">すべて</button>
+  </div>
+</header>
+
+<div id="stats"></div>
+<div id="loading">
+  <div class="spinner"></div>
+  カメラ情報を読み込み中...
+</div>
+<div id="error"></div>
+<div id="content"></div>
+
+<script>
+  const API_KEY = 'XDIh55Q9zDB4wjTQlMFgVPaPWkgIbVs7';
+  const BASE_URL = 'https://api.windy.com/webcams/api/v3/webcams';
+
+  // 日本全体のバウンディングボックス（範囲外は除外）
+  const JAPAN_BBOX = { latMin: 24.0, latMax: 46.0, lonMin: 122.9, lonMax: 153.8 };
+
+  // 8地方の重心座標（最近傍で分類）
+  const CHIHO = [
+    { name: '北海道', lat: 43.5, lon: 142.9 },
+    { name: '東北',   lat: 38.8, lon: 140.5 },
+    { name: '関東',   lat: 36.0, lon: 139.5 },
+    { name: '中部',   lat: 36.0, lon: 137.0 },
+    { name: '近畿',   lat: 34.7, lon: 135.5 },
+    { name: '中国',   lat: 34.7, lon: 133.0 },
+    { name: '四国',   lat: 33.7, lon: 133.5 },
+    { name: '九州',   lat: 33.0, lon: 131.0 },
+    { name: '沖縄',   lat: 26.5, lon: 127.8 },
+  ];
+
+  // 日本を7エリアに分けて検索（最大250km制限）
+  const SEARCH_AREAS = [
+    { lat: 43.5, lon: 142.9, radius: 250 }, // 北海道
+    { lat: 38.8, lon: 140.5, radius: 250 }, // 東北
+    { lat: 36.0, lon: 138.5, radius: 250 }, // 関東・中部
+    { lat: 34.5, lon: 133.5, radius: 250 }, // 近畿・中国
+    { lat: 33.7, lon: 133.5, radius: 200 }, // 四国
+    { lat: 33.0, lon: 131.0, radius: 250 }, // 九州
+    { lat: 26.5, lon: 127.8, radius: 200 }, // 沖縄
+  ];
+
+  function dist2(lat, lon, c) {
+    const dlat = lat - c.lat, dlon = lon - c.lon;
+    return dlat * dlat + dlon * dlon;
+  }
+
+  function toChiho(lat, lon) {
+    if (lat < JAPAN_BBOX.latMin || lat > JAPAN_BBOX.latMax ||
+        lon < JAPAN_BBOX.lonMin || lon > JAPAN_BBOX.lonMax) return null;
+    return CHIHO.reduce((best, c) => dist2(lat, lon, c) < dist2(lat, lon, best) ? c : best).name;
+  }
+
+  async function fetchPage(area, offset, limit = 50) {
+    const params = new URLSearchParams({
+      nearby: `${area.lat},${area.lon},${area.radius}`,
+      limit,
+      offset,
+      include: 'location,images',
+    });
+    const res = await fetch(`${BASE_URL}?${params}`, {
+      headers: { 'x-windy-api-key': API_KEY },
+    });
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(`API エラー ${res.status}: ${body}`);
+    }
+    return res.json();
+  }
+
+  async function fetchArea(area) {
+    const first = await fetchPage(area, 0);
+    const total = first.total;
+    let webcams = first.webcams || [];
+
+    const pages = [];
+    const maxOffset = Math.min(total, 500); // エリアごとに最大500件
+    for (let offset = 50; offset < maxOffset; offset += 50) {
+      pages.push(fetchPage(area, offset));
+    }
+    const results = await Promise.all(pages);
+    results.forEach(r => { webcams = webcams.concat(r.webcams || []); });
+    return webcams;
+  }
+
+  async function fetchAllWebcams() {
+    const allResults = await Promise.all(SEARCH_AREAS.map(fetchArea));
+    const seen = new Set();
+    const webcams = [];
+    allResults.flat().forEach(cam => {
+      if (!seen.has(cam.webcamId)) {
+        seen.add(cam.webcamId);
+        webcams.push(cam);
+      }
+    });
+    return webcams;
+  }
+
+  function groupByChiho(webcams) {
+    const map = {};
+    CHIHO.forEach(c => { map[c.name] = []; });
+
+    webcams.forEach(cam => {
+      const lat = cam.location?.latitude;
+      const lon = cam.location?.longitude;
+      if (lat == null || lon == null) return;
+      const name = toChiho(lat, lon);
+      if (name) map[name].push(cam);
+    });
+
+    return CHIHO.map(c => [c.name, map[c.name]]).filter(([, cams]) => cams.length > 0);
+  }
+
+  function renderCard(cam) {
+    const title = cam.title || '名称不明';
+    const city = cam.location?.city || '';
+    const isActive = cam.status === 'active';
+    const thumb = cam.images?.current?.preview || cam.images?.daylight?.preview || '';
+    const url = `https://www.windy.com/webcams/${cam.webcamId}`;
+
+    return `
+      <a class="camera-card" href="${url}" target="_blank" rel="noopener">
+        ${thumb
+          ? `<img class="camera-thumb" src="${thumb}" alt="${title}" loading="lazy">`
+          : `<div class="camera-thumb-placeholder">📷</div>`}
+        <div class="camera-info">
+          <div class="camera-title">${title}</div>
+          ${city ? `<div class="camera-city">${city}</div>` : ''}
+          <span class="camera-status ${isActive ? 'status-active' : 'status-inactive'}">
+            ${isActive ? '● ライブ' : '○ 静止画'}
+          </span>
+        </div>
+      </a>`;
+  }
+
+  function filterRegion(btn) {
+    document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const target = btn.dataset.region;
+    document.querySelectorAll('.region-section').forEach(sec => {
+      sec.style.display = (target === 'all' || sec.dataset.region === target) ? '' : 'none';
+    });
+  }
+
+  function render(grouped) {
+    const total = grouped.reduce((s, [, c]) => s + c.length, 0);
+    document.getElementById('stats').textContent = `全国 ${total} 件 / ${grouped.length} 地方`;
+
+    // ナビボタンを地方ごとに追加
+    const nav = document.getElementById('nav');
+    grouped.forEach(([name]) => {
+      const btn = document.createElement('button');
+      btn.className = 'nav-btn';
+      btn.dataset.region = name;
+      btn.textContent = name;
+      btn.onclick = () => filterRegion(btn);
+      nav.appendChild(btn);
+    });
+
+    const content = document.getElementById('content');
+    content.innerHTML = grouped.map(([name, cams]) => `
+      <section class="region-section" data-region="${name}">
+        <div class="region-header">
+          <span class="region-name">${name}</span>
+          <span class="region-count">${cams.length}件</span>
+        </div>
+        <div class="camera-grid">
+          ${cams.map(renderCard).join('')}
+        </div>
+      </section>
+    `).join('');
+  }
+
+  (async () => {
+    try {
+      const webcams = await fetchAllWebcams();
+      document.getElementById('loading').style.display = 'none';
+      const grouped = groupByChiho(webcams);
+      render(grouped);
+    } catch (e) {
+      document.getElementById('loading').style.display = 'none';
+      const err = document.getElementById('error');
+      err.style.display = 'block';
+      err.textContent = `読み込みに失敗しました: ${e.message}`;
+    }
+  })();
+</script>
+
+</body>
+</html>
